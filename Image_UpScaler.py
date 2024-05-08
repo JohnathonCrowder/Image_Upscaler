@@ -2,19 +2,21 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QHBoxLayout, QProgressBar
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
 from PIL import Image
 from super_image import EdsrModel, ImageLoader
 from torchvision.transforms import ToPILImage
 
 class ImageUpscaler(QThread):
     progress_signal = pyqtSignal(int)
+
     def __init__(self, input_directory):
         super().__init__()
         self.input_directory = input_directory
         self.upscaled_directory = os.path.join(input_directory, "UpScaled")
         self.model = EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
         self.to_pil = ToPILImage()
+        self.image_files = [file for file in os.listdir(input_directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
 
     def upscale_image(self, image, patch_size=256):
         # Get the width and height of the input image
@@ -132,6 +134,13 @@ class MainWindow(QMainWindow):
         self.hide_progress_timer.setInterval(5000)  # 5000 milliseconds = 5 seconds
         self.hide_progress_timer.timeout.connect(self.hide_progress_bar)
 
+        self.label_image_preview = QLabel()
+        self.label_image_preview.setAlignment(Qt.AlignCenter)
+        self.label_image_preview.setFixedSize(200, 200)  # Adjust the size as needed
+        layout.addWidget(self.label_image_preview)
+
+
+
     def select_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
         if directory:
@@ -148,9 +157,26 @@ class MainWindow(QMainWindow):
             self.label_status.setText("Upscaling images...")
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(True)
+            self.label_image_preview.setVisible(True)
+            input_directory = self.upscaler.input_directory
+            self.update_image_preview(input_directory, 0)  # Display the first image
+            total_images = len(self.upscaler.image_files)
+            target_value = 100 // total_images
+            self.update_progress(target_value)
             self.upscaler.start()
         else:
             self.label_status.setText("No directory selected.")
+
+    def update_image_preview(self, directory, index):
+        image_files = [file for file in os.listdir(directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        if 0 <= index < len(image_files):
+            current_image = image_files[index]
+            image_path = os.path.join(directory, current_image)
+            pixmap = QPixmap(image_path)
+            scaled_pixmap = pixmap.scaled(self.label_image_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.label_image_preview.setPixmap(scaled_pixmap)
+        else:
+            self.label_image_preview.clear()
 
     def update_progress(self, value):
         current_value = self.progress_bar.value()
@@ -158,17 +184,26 @@ class MainWindow(QMainWindow):
 
         if current_value < target_value:
             self.progress_bar.setValue(current_value + 1)
-            QTimer.singleShot(200, lambda: self.update_progress(value))  # Increased delay to 200ms
+            QTimer.singleShot(200, lambda: self.update_progress(target_value))
         else:
             self.progress_bar.setValue(target_value)
 
+        total_images = len(self.upscaler.image_files)
+        progress_interval = 100 // total_images
+        current_image_index = (value - 1) // progress_interval
+
+        if current_image_index < total_images:
+            self.update_image_preview(self.upscaler.input_directory, current_image_index)
+
         if value == 100:
             self.label_status.setText("Upscaling completed.")
+            self.label_status.setVisible(True)
             self.hide_progress_timer.start()
 
     def hide_progress_bar(self):
         self.progress_bar.setVisible(False)
-        self.label_status.setVisible(False)  # Hide the status label
+        self.label_status.setVisible(False)
+        self.label_image_preview.setVisible(False)
         self.hide_progress_timer.stop()
 
 if __name__ == "__main__":
