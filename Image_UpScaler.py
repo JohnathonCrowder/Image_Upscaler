@@ -98,11 +98,13 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
 
-        self.label_directory = QLabel("Select a directory to upscale images:")
-        layout.addWidget(self.label_directory)
+        self.label_input = QLabel("Select an input:")
+        layout.addWidget(self.label_input)
 
-        self.label_image_count = QLabel("Images found: 0")
-        layout.addWidget(self.label_image_count)
+        self.label_image_preview = QLabel()
+        self.label_image_preview.setAlignment(Qt.AlignCenter)
+        self.label_image_preview.setFixedSize(200, 200)
+        layout.addWidget(self.label_image_preview)
 
         self.label_status = QLabel("")
         layout.addWidget(self.label_status)
@@ -114,12 +116,16 @@ class MainWindow(QMainWindow):
 
         button_layout = QHBoxLayout()
 
-        self.button_select = QPushButton("Select Directory")
-        self.button_select.clicked.connect(self.select_directory)
-        button_layout.addWidget(self.button_select)
+        self.button_select_directory = QPushButton("Select Directory")
+        self.button_select_directory.clicked.connect(self.select_directory)
+        button_layout.addWidget(self.button_select_directory)
 
-        self.button_upscale = QPushButton("Upscale Images")
-        self.button_upscale.clicked.connect(self.upscale_images)
+        self.button_select_image = QPushButton("Select Image")
+        self.button_select_image.clicked.connect(self.select_image)
+        button_layout.addWidget(self.button_select_image)
+
+        self.button_upscale = QPushButton("Upscale")
+        self.button_upscale.clicked.connect(self.upscale)
         self.button_upscale.setEnabled(False)
         button_layout.addWidget(self.button_upscale)
 
@@ -130,53 +136,81 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         self.upscaler = None
+        self.input_path = None
+        self.is_directory = False
+
         self.hide_progress_timer = QTimer()
-        self.hide_progress_timer.setInterval(5000)  # 5000 milliseconds = 5 seconds
+        self.hide_progress_timer.setInterval(5000)
         self.hide_progress_timer.timeout.connect(self.hide_progress_bar)
 
-        self.label_image_preview = QLabel()
-        self.label_image_preview.setAlignment(Qt.AlignCenter)
-        self.label_image_preview.setFixedSize(200, 200)  # Adjust the size as needed
-        layout.addWidget(self.label_image_preview)
-
-
+        self.hide_status_timer = QTimer()
+        self.hide_status_timer.setInterval(5000)
+        self.hide_status_timer.timeout.connect(self.hide_status_label)
 
     def select_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
         if directory:
-            image_files = [file for file in os.listdir(directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
-            image_count = len(image_files)
-            self.label_directory.setText(f"Selected Directory: {directory}")
-            self.label_image_count.setText(f"Images found: {image_count}")
+            self.input_path = directory
+            self.is_directory = True
+            self.label_input.setText(f"Selected Directory: {directory}")
             self.button_upscale.setEnabled(True)
-            self.upscaler = ImageUpscaler(directory)
-            self.upscaler.progress_signal.connect(self.update_progress)
 
-    def upscale_images(self):
-        if self.upscaler:
-            self.label_status.setText("Upscaling images...")
-            self.progress_bar.setValue(0)
-            self.progress_bar.setVisible(True)
-            self.label_image_preview.setVisible(True)
-            input_directory = self.upscaler.input_directory
-            self.update_image_preview(input_directory, 0)  # Display the first image
-            total_images = len(self.upscaler.image_files)
-            target_value = 100 // total_images
-            self.update_progress(target_value)
-            self.upscaler.start()
-        else:
-            self.label_status.setText("No directory selected.")
+    def select_image(self):
+        image_file, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Image Files (*.png *.jpg *.jpeg)")
+        if image_file:
+            self.input_path = image_file
+            self.is_directory = False
+            self.label_input.setText(f"Selected Image: {image_file}")
+            self.button_upscale.setEnabled(True)
+            self.update_image_preview(image_file)
 
-    def update_image_preview(self, directory, index):
-        image_files = [file for file in os.listdir(directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        if 0 <= index < len(image_files):
-            current_image = image_files[index]
-            image_path = os.path.join(directory, current_image)
-            pixmap = QPixmap(image_path)
-            scaled_pixmap = pixmap.scaled(self.label_image_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.label_image_preview.setPixmap(scaled_pixmap)
-        else:
-            self.label_image_preview.clear()
+    def upscale(self):
+        if self.input_path:
+            if self.is_directory:
+                self.upscale_directory()
+            else:
+                self.upscale_image()
+
+    def upscale_directory(self):
+        self.label_status.setText("Upscaling images...")
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.label_image_preview.setVisible(True)
+        self.upscaler = ImageUpscaler(self.input_path)
+        self.upscaler.progress_signal.connect(self.update_progress)
+        self.upscaler.start()
+
+    def upscale_image(self):
+        self.label_status.setText("Upscaling image...")
+        self.label_status.setVisible(True)
+        self.label_image_preview.setVisible(True)
+        upscaled_image = self.upscale_single_image(self.input_path)
+        self.save_upscaled_image(upscaled_image)
+        self.label_status.setText("Upscaling completed.")
+        self.hide_status_timer.start()
+
+    def hide_status_label(self):
+        self.label_status.setVisible(False)
+        self.hide_status_timer.stop()
+
+    def upscale_single_image(self, image_path):
+        model = EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
+        image = Image.open(image_path)
+        inputs = ImageLoader.load_image(image)
+        preds = model(inputs)
+        output_image = ToPILImage()(preds.squeeze(0))
+        return output_image
+
+    def save_upscaled_image(self, upscaled_image):
+        output_directory = os.path.dirname(self.input_path)
+        output_filename = f"upscaled_{os.path.basename(self.input_path)}"
+        output_path = os.path.join(output_directory, output_filename)
+        upscaled_image.save(output_path)
+
+    def update_image_preview(self, image_path):
+        pixmap = QPixmap(image_path)
+        scaled_pixmap = pixmap.scaled(self.label_image_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.label_image_preview.setPixmap(scaled_pixmap)
 
     def update_progress(self, value):
         current_value = self.progress_bar.value()
@@ -193,11 +227,12 @@ class MainWindow(QMainWindow):
         current_image_index = (value - 1) // progress_interval
 
         if current_image_index < total_images:
-            self.update_image_preview(self.upscaler.input_directory, current_image_index)
+            current_image = self.upscaler.image_files[current_image_index]
+            image_path = os.path.join(self.input_path, current_image)
+            self.update_image_preview(image_path)
 
         if value == 100:
             self.label_status.setText("Upscaling completed.")
-            self.label_status.setVisible(True)
             self.hide_progress_timer.start()
 
     def hide_progress_bar(self):
