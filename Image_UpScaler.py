@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         self.label_image_preview = QLabel()
         self.label_image_preview.setAlignment(Qt.AlignCenter)
         self.label_image_preview.setFixedSize(600, 600)
+        self.label_image_preview.setStyleSheet("border: 2px solid black; background-color: #E0C9C5;")
         main_layout.addWidget(self.label_image_preview)
 
         # Sidebar menu column
@@ -110,7 +111,7 @@ class MainWindow(QMainWindow):
         self.label_input = QLabel("Select an input:")
         sidebar_layout.addWidget(self.label_input)
 
-        self.label_status = QLabel("")
+        self.label_status = QLabel("    ")
         sidebar_layout.addWidget(self.label_status)
 
         self.progress_bar = QProgressBar()
@@ -187,7 +188,7 @@ class MainWindow(QMainWindow):
 
     def upscale_image(self):
         self.label_status.setText("Upscaling image...")
-        self.label_status.setVisible(True)
+        #self.label_status.setVisible(True)
         upscaled_image = self.upscale_single_image(self.input_path)
         self.save_upscaled_image(upscaled_image)
         self.label_status.setText("Upscaling completed.")
