@@ -1,6 +1,6 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QHBoxLayout, QProgressBar
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QHBoxLayout, QProgressBar, QSizePolicy
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
 from PIL import Image
@@ -101,8 +101,8 @@ class MainWindow(QMainWindow):
         # Image preview column
         self.label_image_preview = QLabel()
         self.label_image_preview.setAlignment(Qt.AlignCenter)
-        self.label_image_preview.setFixedSize(600, 600)
-        self.label_image_preview.setStyleSheet("border: 2px solid black; background-color: #E0C9C5;")
+        self.label_image_preview.setStyleSheet("border: 2px solid black; background-color: #F0F0F0;")
+        self.label_image_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # Add this line
         main_layout.addWidget(self.label_image_preview)
 
         # Sidebar menu column
