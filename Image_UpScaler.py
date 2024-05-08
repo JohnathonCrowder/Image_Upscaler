@@ -2,7 +2,7 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QFileDialog, QVBoxLayout, QWidget, QHBoxLayout, QProgressBar
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 from PIL import Image
 from super_image import EdsrModel, ImageLoader
 from torchvision.transforms import ToPILImage
@@ -96,14 +96,18 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
 
-        self.label = QLabel("Select a directory to upscale images:")
-        layout.addWidget(self.label)
+        self.label_directory = QLabel("Select a directory to upscale images:")
+        layout.addWidget(self.label_directory)
+
+        self.label_image_count = QLabel("Images found: 0")
+        layout.addWidget(self.label_image_count)
 
         self.label_status = QLabel("")
         layout.addWidget(self.label_status)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
+        self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
         button_layout = QHBoxLayout()
@@ -124,11 +128,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         self.upscaler = None
+        self.hide_progress_timer = QTimer()
+        self.hide_progress_timer.setInterval(5000)  # 5000 milliseconds = 5 seconds
+        self.hide_progress_timer.timeout.connect(self.hide_progress_bar)
 
     def select_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
         if directory:
-            self.label.setText(f"Selected Directory: {directory}")
+            image_files = [file for file in os.listdir(directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            image_count = len(image_files)
+            self.label_directory.setText(f"Selected Directory: {directory}")
+            self.label_image_count.setText(f"Images found: {image_count}")
             self.button_upscale.setEnabled(True)
             self.upscaler = ImageUpscaler(directory)
             self.upscaler.progress_signal.connect(self.update_progress)
@@ -137,6 +147,7 @@ class MainWindow(QMainWindow):
         if self.upscaler:
             self.label_status.setText("Upscaling images...")
             self.progress_bar.setValue(0)
+            self.progress_bar.setVisible(True)
             self.upscaler.start()
         else:
             self.label_status.setText("No directory selected.")
@@ -145,6 +156,11 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(value)
         if value == 100:
             self.label_status.setText("Upscaling completed.")
+            self.hide_progress_timer.start()
+
+    def hide_progress_bar(self):
+        self.progress_bar.setVisible(False)
+        self.hide_progress_timer.stop()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
