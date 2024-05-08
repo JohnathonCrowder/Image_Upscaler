@@ -153,13 +153,22 @@ class MainWindow(QMainWindow):
             self.label_status.setText("No directory selected.")
 
     def update_progress(self, value):
-        self.progress_bar.setValue(value)
+        current_value = self.progress_bar.value()
+        target_value = value
+
+        if current_value < target_value:
+            self.progress_bar.setValue(current_value + 1)
+            QTimer.singleShot(200, lambda: self.update_progress(value))  # Increased delay to 200ms
+        else:
+            self.progress_bar.setValue(target_value)
+
         if value == 100:
             self.label_status.setText("Upscaling completed.")
             self.hide_progress_timer.start()
 
     def hide_progress_bar(self):
         self.progress_bar.setVisible(False)
+        self.label_status.setVisible(False)  # Hide the status label
         self.hide_progress_timer.stop()
 
 if __name__ == "__main__":
