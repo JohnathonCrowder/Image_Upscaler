@@ -10,20 +10,29 @@ from torchvision.transforms import ToPILImage
 class ImageUpscaler(QThread):
     progress_signal = pyqtSignal(int)
 
-    def __init__(self, input_directory):
+    def __init__(self, input_directory, scale_factor):
         super().__init__()
         self.input_directory = input_directory
-        self.upscaled_directory = os.path.join(input_directory, "UpScaled")
-        self.model = EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
+        self.upscaled_directory = os.path.join(input_directory, f"UpScaled_{scale_factor}x")
+        self.scale_factor = scale_factor
+        self.model = self.load_model(scale_factor)
         self.to_pil = ToPILImage()
         self.image_files = [file for file in os.listdir(input_directory) if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    def load_model(self, scale_factor):
+        if scale_factor == 2:
+            return EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
+        elif scale_factor == 4:
+            return EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=4)
+        else:
+            raise ValueError(f"Unsupported scale factor: {scale_factor}")
 
     def upscale_image(self, image, patch_size=256):
         # Get the width and height of the input image
         width, height = image.size
 
-        # Create a new output image with doubled width and height
-        output_image = Image.new("RGB", (width * 2, height * 2))
+        # Create a new output image with scaled width and height
+        output_image = Image.new("RGB", (width * self.scale_factor, height * self.scale_factor))
 
         # Iterate over the image in patches
         for y in range(0, height, patch_size):
@@ -41,7 +50,7 @@ class ImageUpscaler(QThread):
                 patch_output = self.to_pil(preds.squeeze(0))
 
                 # Paste the upscaled patch into the output image at the corresponding position
-                output_image.paste(patch_output, (x * 2, y * 2))
+                output_image.paste(patch_output, (x * self.scale_factor, y * self.scale_factor))
 
         # Return the upscaled output image
         return output_image
@@ -102,7 +111,7 @@ class MainWindow(QMainWindow):
         self.label_image_preview = QLabel()
         self.label_image_preview.setAlignment(Qt.AlignCenter)
         self.label_image_preview.setStyleSheet("border: 2px solid black; background-color: #F0F0F0;")
-        self.label_image_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  # Add this line
+        self.label_image_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         main_layout.addWidget(self.label_image_preview)
 
         # Sidebar menu column
@@ -126,6 +135,24 @@ class MainWindow(QMainWindow):
         self.button_select_image = QPushButton("Select Image")
         self.button_select_image.clicked.connect(self.select_image)
         sidebar_layout.addWidget(self.button_select_image)
+
+        self.scale_factor = 2  # Default scale factor
+        self.scale_label = QLabel("Scale Factor:")
+        sidebar_layout.addWidget(self.scale_label)
+
+        scale_layout = QHBoxLayout()
+        self.scale_2x_button = QPushButton("2x")
+        self.scale_2x_button.clicked.connect(lambda: self.set_scale_factor(2))
+        self.scale_2x_button.setCheckable(True)
+        self.scale_2x_button.setChecked(True)
+        scale_layout.addWidget(self.scale_2x_button)
+
+        self.scale_4x_button = QPushButton("4x")
+        self.scale_4x_button.clicked.connect(lambda: self.set_scale_factor(4))
+        self.scale_4x_button.setCheckable(True)
+        scale_layout.addWidget(self.scale_4x_button)
+
+        sidebar_layout.addLayout(scale_layout)
 
         self.button_upscale = QPushButton("Upscale")
         self.button_upscale.clicked.connect(self.upscale)
@@ -153,6 +180,15 @@ class MainWindow(QMainWindow):
         self.hide_status_timer.setInterval(5000)
         self.hide_status_timer.timeout.connect(self.hide_status_label)
 
+    def set_scale_factor(self, factor):
+        self.scale_factor = factor
+        if factor == 2:
+            self.scale_2x_button.setChecked(True)
+            self.scale_4x_button.setChecked(False)
+        else:
+            self.scale_2x_button.setChecked(False)
+            self.scale_4x_button.setChecked(True)
+
     def select_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
         if directory:
@@ -179,33 +215,28 @@ class MainWindow(QMainWindow):
                 self.upscale_image()
 
     def upscale_directory(self):
-        self.label_status.setText("Upscaling images...")
+        self.label_status.setText(f"Upscaling images ({self.scale_factor}x)...")
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
-        self.upscaler = ImageUpscaler(self.input_path)
+        self.upscaler = ImageUpscaler(self.input_path, self.scale_factor)
         self.upscaler.progress_signal.connect(self.update_progress)
         self.upscaler.start()
 
     def upscale_image(self):
-        self.label_status.setText("Upscaling image...")
-        #self.label_status.setVisible(True)
+        self.label_status.setText(f"Upscaling image ({self.scale_factor}x)...")
         upscaled_image = self.upscale_single_image(self.input_path)
         self.save_upscaled_image(upscaled_image)
         self.label_status.setText("Upscaling completed.")
         self.clear_image_preview()
         self.hide_status_timer.start()
 
-    def hide_status_label(self):
-        self.label_status.setVisible(False)
-        self.hide_status_timer.stop()
-
     def upscale_single_image(self, image_path):
-        model = EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
+        model = self.load_model(self.scale_factor)
         to_pil = ToPILImage()
 
         image = Image.open(image_path)
         width, height = image.size
-        output_image = Image.new("RGB", (width * 2, height * 2))
+        output_image = Image.new("RGB", (width * self.scale_factor, height * self.scale_factor))
 
         patch_size = 256
         total_patches = ((width - 1) // patch_size + 1) * ((height - 1) // patch_size + 1)
@@ -217,27 +248,40 @@ class MainWindow(QMainWindow):
                 inputs = ImageLoader.load_image(patch)
                 preds = model(inputs)
                 patch_output = to_pil(preds.squeeze(0))
-                output_image.paste(patch_output, (x * 2, y * 2))
+                output_image.paste(patch_output, (x * self.scale_factor, y * self.scale_factor))
 
                 current_patch += 1
                 progress = (current_patch / total_patches) * 100
-                self.label_status.setText(f"Upscaling Image... {progress:.2f}%")
+                self.label_status.setText(f"Upscaling Image ({self.scale_factor}x)... {progress:.2f}%")
 
         return output_image
 
+    def load_model(self, scale_factor):
+        if scale_factor == 2:
+            return EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=2)
+        elif scale_factor == 4:
+            return EdsrModel.from_pretrained('eugenesiow/edsr-base', scale=4)
+        else:
+            raise ValueError(f"Unsupported scale factor: {scale_factor}")
+
     def save_upscaled_image(self, upscaled_image):
         output_directory = os.path.dirname(self.input_path)
-        output_filename = f"upscaled_{os.path.basename(self.input_path)}"
+        base_name, ext = os.path.splitext(os.path.basename(self.input_path))
+        output_filename = f"{base_name}_upscaled_{self.scale_factor}x{ext}"
         output_path = os.path.join(output_directory, output_filename)
         upscaled_image.save(output_path)
+
+    def hide_status_label(self):
+        self.label_status.setVisible(False)
+        self.hide_status_timer.stop()
+
+    def clear_image_preview(self):
+        self.label_image_preview.clear()
 
     def update_image_preview(self, image_path):
         pixmap = QPixmap(image_path)
         scaled_pixmap = pixmap.scaled(self.label_image_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.label_image_preview.setPixmap(scaled_pixmap)
-
-    def clear_image_preview(self):
-        self.label_image_preview.clear()
 
     def update_progress(self, value):
         current_value = self.progress_bar.value()
